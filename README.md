@@ -1,5 +1,5 @@
 # Diffusion-Models-from-Scratch
-Implementation of different diffusion models for probabilistic image generation 
+Implementation of different diffusion models for image generation 
 
 
 Results from DDPM UNET Model:
