@@ -6,6 +6,7 @@ from typing import List
 import random
 import math
 import pdb
+from torch import device
 
 class ResBlock(nn.Module):
     def __init__(self, C: int, num_groups: int, dropout_prob: float):
@@ -69,17 +70,17 @@ class UnetLayer(nn.Module):
         return self.conv(x), x
 
 class SinusoidalEmbeddings(nn.Module):
-    def __init__(self, time_steps:int, embed_dim: int):
+    def __init__(self, time_steps:int, embed_dim: int, device: device):
         super().__init__()
         position = torch.arange(time_steps).unsqueeze(1).float()
         div = torch.exp(torch.arange(0, embed_dim, 2).float() * -(math.log(10000.0) / embed_dim))
         embeddings = torch.zeros(time_steps, embed_dim, requires_grad=False)
         embeddings[:, 0::2] = torch.sin(position * div)
         embeddings[:, 1::2] = torch.cos(position * div)
-        self.embeddings = embeddings
+        self.embeddings = embeddings.to(device)
 
-    def forward(self, x, t):
-        embeds = self.embeddings[t].to(x.device)
+    def forward(self, t):
+        embeds = self.embeddings[t]
         return embeds[:, :, None, None]
 
 class UNET(nn.Module):
@@ -92,6 +93,7 @@ class UNET(nn.Module):
             num_heads: int = 8,
             input_channels: int = 1,
             output_channels: int = 1,
+            device: device = 'cuda',
             time_steps: int = 1000):
         super().__init__()
         self.num_layers = len(Channels)
@@ -100,7 +102,7 @@ class UNET(nn.Module):
         self.late_conv = nn.Conv2d(out_channels, out_channels//2, kernel_size=3, padding=1)
         self.output_conv = nn.Conv2d(out_channels//2, output_channels, kernel_size=1)
         self.relu = nn.ReLU(inplace=True)
-        self.embeddings = SinusoidalEmbeddings(time_steps=time_steps, embed_dim=max(Channels))
+        self.embeddings = SinusoidalEmbeddings(time_steps=time_steps, embed_dim=max(Channels), device=device)
         for i in range(self.num_layers):
             layer = UnetLayer(
                 upscale=Upscales[i],
@@ -117,7 +119,7 @@ class UNET(nn.Module):
         residuals = []
         for i in range(self.num_layers//2):
             layer = getattr(self, f'Layer{i+1}')
-            embeddings = self.embeddings(x, t)
+            embeddings = self.embeddings(t)
             x, r = layer(x, embeddings)
             residuals.append(r)
         for i in range(self.num_layers//2, self.num_layers):
@@ -126,10 +128,11 @@ class UNET(nn.Module):
         return self.output_conv(self.relu(self.late_conv(x)))
 
 def main():
-    x = torch.randn(16, 1, 32, 32).cuda()
-    t = [random.randint(0, 999) for _ in range(16)]
+    x = torch.randn(64, 1, 32, 32).cuda()
+    t = torch.randint(0,1000,(64,)).cuda()
+    #t = [random.randint(0, 999) for _ in range(16)]
     model = UNET().cuda()
-    print(sum(p.numel() for p in model.parameters() if p.requires_grad))
+    model(x,t)
 
     # a = torch.randn((16, 32, 4, 4))
     # b = torch.randn((16, 32, 4, 4))
